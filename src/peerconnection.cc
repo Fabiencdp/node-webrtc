@@ -167,9 +167,17 @@ void PeerConnection::HandleOnAddTrackEvent(const OnAddTrackEvent& event) {
 
   _receivers.push_back(receiver);
 
-  Local<Value> argv[1];
+  auto mediaStreams = std::vector<MediaStream*>();
+  for (auto const& stream : event.streams) {
+    auto mediaStream = MediaStream::GetOrCreate(_factory, stream);
+    mediaStreams.push_back(mediaStream);
+  }
+  CONVERT_OR_THROW_AND_RETURN(mediaStreams, streams, Local<Value>);
+
+  Local<Value> argv[2];
   argv[0] = receiver->handle();
-  runInAsyncScope(handle(), "ontrack", 1, argv);
+  argv[1] = streams;
+  runInAsyncScope(handle(), "ontrack", 2, argv);
   TRACE_END;
 }
 
@@ -223,9 +231,9 @@ void PeerConnection::OnAddStream(rtc::scoped_refptr<webrtc::MediaStreamInterface
 }
 
 void PeerConnection::OnAddTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-    const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&) {
+    const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>& streams) {
   TRACE_CALL;
-  Dispatch(OnAddTrackEvent::Create(receiver));
+  Dispatch(OnAddTrackEvent::Create(receiver, streams));
   TRACE_END;
 }
 

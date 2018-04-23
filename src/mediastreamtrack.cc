@@ -20,14 +20,20 @@ using v8::Value;
 
 Nan::Persistent<Function> MediaStreamTrack::constructor;
 
+std::map<rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>, MediaStreamTrack*> MediaStreamTrack::_tracks;
+
 MediaStreamTrack::MediaStreamTrack(
     std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
     rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>&& track)
   : Nan::AsyncResource("MediaStreamTrack")
-  , PromiseFulfillingEventLoop(*this)
+  , EventLoop(*this)
   , _factory(std::move(factory))
   , _track(std::move(track)) {
   _track->RegisterObserver(this);
+}
+
+MediaStreamTrack::~MediaStreamTrack() {
+  MediaStreamTrack::Release(this);
 }
 
 NAN_METHOD(MediaStreamTrack::New) {
@@ -78,6 +84,32 @@ NAN_GETTER(MediaStreamTrack::GetReadyState) {
   auto self = Nan::ObjectWrap::Unwrap<MediaStreamTrack>(info.Holder());
   CONVERT_OR_THROW_AND_RETURN(self->_track->state(), result, std::string);
   info.GetReturnValue().Set(Nan::New(result).ToLocalChecked());
+}
+
+MediaStreamTrack* MediaStreamTrack::GetOrCreate(
+    std::shared_ptr<PeerConnectionFactory> factory,
+    rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track) {
+  Nan::HandleScope scope;
+  if (_tracks.count(track)) {
+    return _tracks[track];
+  }
+  Local<Value> cargv[2];
+  cargv[0] = Nan::New<External>(static_cast<void*>(&factory));
+  cargv[1] = Nan::New<External>(static_cast<void*>(&track));
+  auto mediaStreamTrack = Nan::ObjectWrap::Unwrap<MediaStreamTrack>(
+          Nan::New(MediaStreamTrack::constructor)->NewInstance(2, cargv));
+  _tracks[track] = mediaStreamTrack;
+  return mediaStreamTrack;
+}
+
+void MediaStreamTrack::Release(MediaStreamTrack* track) {
+  // NOTE(mroberts): Use some bidirectional map instead.
+  for (auto pair : _tracks) {
+    if (pair.second == track) {
+      _tracks.erase(pair.first);
+      return;
+    }
+  }
 }
 
 void MediaStreamTrack::Init(Handle<Object> exports) {

@@ -19,12 +19,14 @@ namespace node_webrtc {
 class MediaStreamTrack
   : public Nan::AsyncResource
   , public Nan::ObjectWrap
-  , public node_webrtc::PromiseFulfillingEventLoop<MediaStreamTrack>
+  , public node_webrtc::EventLoop<MediaStreamTrack>
   , public webrtc::ObserverInterface {
  public:
   MediaStreamTrack(
       std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
       rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>&& track);
+
+  ~MediaStreamTrack() override;
 
   static void Init(v8::Handle<v8::Object> exports);
   static Nan::Persistent<v8::Function> constructor;
@@ -38,12 +40,21 @@ class MediaStreamTrack
   // ObserverInterface
   void OnChanged() override;
 
+  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track() { return _track; }
+
+  static MediaStreamTrack* GetOrCreate(
+      std::shared_ptr<PeerConnectionFactory>,
+      rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>);
+  static void Release(MediaStreamTrack*);
+
  protected:
   void DidStop() override;
 
  private:
   const std::shared_ptr<node_webrtc::PeerConnectionFactory> _factory;
   const rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> _track;
+
+  static std::map<rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>, MediaStreamTrack*> _tracks;
 };
 
 }  // namespace node_webrtc

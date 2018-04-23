@@ -37,14 +37,9 @@ NAN_METHOD(RTCRtpReceiver::New) {
 
   auto factory = *static_cast<std::shared_ptr<node_webrtc::PeerConnectionFactory>*>(Local<External>::Cast(info[0])->Value());
   auto receiver = *static_cast<rtc::scoped_refptr<webrtc::RtpReceiverInterface>*>(Local<External>::Cast(info[1])->Value());
-  auto track = receiver->track();
+  auto track = MediaStreamTrack::GetOrCreate(factory, receiver->track());
 
-  Local<Value> cargv[2];
-  cargv[0] = info[0];
-  cargv[1] = Nan::New<External>(static_cast<void*>(&track));
-  auto mediaStreamTrack = Nan::ObjectWrap::Unwrap<MediaStreamTrack>(Nan::New(MediaStreamTrack::constructor)->NewInstance(2, cargv));
-
-  auto obj = new RTCRtpReceiver(std::move(factory), std::move(receiver), mediaStreamTrack);
+  auto obj = new RTCRtpReceiver(std::move(factory), std::move(receiver), track);
   obj->Wrap(info.This());
   obj->Ref();
 
