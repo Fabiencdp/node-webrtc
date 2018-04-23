@@ -23,6 +23,7 @@
 #include "setsessiondescriptionobserver.h"
 #include "stats-observer.h"
 
+using node_webrtc::Arguments;
 using node_webrtc::DataChannelEvent;
 using node_webrtc::Event;
 using node_webrtc::ExtendedRTCConfiguration;
@@ -273,7 +274,7 @@ NAN_METHOD(PeerConnection::CreateOffer) {
 
   SETUP_PROMISE(PeerConnection, RTCSessionDescriptionInit);
 
-  auto validationOptions = From<Maybe<RTCOfferOptions>, Nan::NAN_METHOD_ARGS_TYPE>(info).Map(
+  auto validationOptions = From<Maybe<RTCOfferOptions>>(Arguments(info)).Map(
   [](const Maybe<RTCOfferOptions> maybeOptions) { return maybeOptions.FromMaybe(RTCOfferOptions()); });
   if (validationOptions.IsInvalid()) {
     TRACE_END;
@@ -298,7 +299,7 @@ NAN_METHOD(PeerConnection::CreateAnswer) {
 
   SETUP_PROMISE(PeerConnection, RTCSessionDescriptionInit);
 
-  auto validationOptions = From<Maybe<RTCAnswerOptions>, Nan::NAN_METHOD_ARGS_TYPE>(info).Map(
+  auto validationOptions = From<Maybe<RTCAnswerOptions>>(Arguments(info)).Map(
   [](const Maybe<RTCAnswerOptions> maybeOptions) { return maybeOptions.FromMaybe(RTCAnswerOptions()); });
   if (validationOptions.IsInvalid()) {
     TRACE_END;

@@ -63,8 +63,8 @@ struct Converter<T, T> {
 template <typename S, typename L, typename R>
 struct Converter<S, Either<L, R>> {
   static Validation<Either<L, R>> Convert(const S s) {
-    return From<L>(s).Map(&Either<L, R>::Left)
-        | (From<R>(s).Map(&Either<L, R>::Right));
+    return Converter<S, L>::Convert(s).Map(&Either<L, R>::Left)
+        | (Converter<S, R>::Convert(s).Map(&Either<L, R>::Right));
   }
 };
 

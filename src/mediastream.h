@@ -24,7 +24,13 @@ class MediaStream
  public:
   MediaStream(
       std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
-      rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream);
+      rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream):
+    MediaStream(std::move(factory), std::move(stream), !_shouldReleaseFactory) {}
+
+  MediaStream(
+      std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
+      rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream,
+      bool shouldReleaseFactory);
 
   ~MediaStream() override;
 
@@ -51,6 +57,7 @@ class MediaStream
  private:
   const std::shared_ptr<node_webrtc::PeerConnectionFactory> _factory;
   const rtc::scoped_refptr<webrtc::MediaStreamInterface> _stream;
+  const bool _shouldReleaseFactory;
 
   static std::map<rtc::scoped_refptr<webrtc::MediaStreamInterface>, MediaStream*> _streams;
 };

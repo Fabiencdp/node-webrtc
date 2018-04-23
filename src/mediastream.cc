@@ -7,11 +7,16 @@
  */
 #include "src/mediastream.h"
 
+#include "webrtc/base/helpers.h"
+
 #include "src/converters/arguments.h"
+#include "src/converters.h"
 #include "src/converters/v8.h"
 #include "src/converters/webrtc.h"
 
+using node_webrtc::Either;
 using node_webrtc::EventLoop;
+using node_webrtc::Maybe;
 using node_webrtc::MediaStream;
 using node_webrtc::MediaStreamTrack;
 using node_webrtc::PeerConnectionFactory;
@@ -29,28 +34,68 @@ std::map<rtc::scoped_refptr<webrtc::MediaStreamInterface>, MediaStream*> MediaSt
 
 MediaStream::MediaStream(
     std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
-    rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream)
+    rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream,
+    bool shouldReleaseFactory)
   : Nan::AsyncResource("MediaStream")
-  , _factory(std::move(factory))
-  , _stream(std::move(stream)) {
-  // Do nothing.
+  , _factory(factory ? factory : PeerConnectionFactory::GetOrCreateDefault())
+  , _stream(std::move(stream))
+  , _shouldReleaseFactory(!factory || shouldReleaseFactory) {
+  // Do nothing
 }
 
 MediaStream::~MediaStream() {
   MediaStream::Release(this);
+  if (_shouldReleaseFactory) {
+    PeerConnectionFactory::Release();
+  }
 }
 
 NAN_METHOD(MediaStream::New) {
-  if (info.Length() != 2 || !info[0]->IsExternal() || !info[1]->IsExternal()) {
-    return Nan::ThrowTypeError("You cannot construct a MediaStream");
+  CONVERT_ARGS_OR_THROW_AND_RETURN(eithers, Either<std::tuple<Local<External> COMMA Local<External>> COMMA Either<std::vector<MediaStreamTrack*> COMMA Maybe<MediaStream*>>>);
+  std::shared_ptr<PeerConnectionFactory> factory = nullptr;
+  rtc::scoped_refptr<webrtc::MediaStreamInterface> stream = nullptr;
+  auto tracks = std::vector<MediaStreamTrack*>();
+  if (eithers.IsLeft()) {
+    // 1. Remote MediaStream
+    auto pair = eithers.UnsafeFromLeft();
+    factory = *static_cast<std::shared_ptr<node_webrtc::PeerConnectionFactory>*>(Local<External>::Cast(std::get<0>(pair))->Value());
+    stream = *static_cast<rtc::scoped_refptr<webrtc::MediaStreamInterface>*>(Local<External>::Cast(std::get<1>(pair))->Value());
+  } else {
+    auto either = eithers.UnsafeFromRight();
+    if (either.IsLeft()) {
+      // 2. Local MediaStream, Array of MediaStreamTracks
+      tracks = either.UnsafeFromLeft();
+    } else {
+      auto maybeStream = either.UnsafeFromRight();
+      if (maybeStream.IsJust()) {
+        // 3. Local MediaStream, existing MediaStream
+        auto mediaStream = maybeStream.UnsafeFromJust();
+        stream = mediaStream->_stream;
+        factory = mediaStream->_factory;
+      }
+      // 4. Local MediaStream
+    }
   }
 
-  auto factory = *static_cast<std::shared_ptr<node_webrtc::PeerConnectionFactory>*>(Local<External>::Cast(info[0])->Value());
-  auto stream = *static_cast<rtc::scoped_refptr<webrtc::MediaStreamInterface>*>(Local<External>::Cast(info[1])->Value());
+  MediaStream* mediaStream = nullptr;
+  if (!stream) {
+    auto label = rtc::CreateRandomUuid();
+    auto shouldReleaseFactory = !factory;
+    factory = factory ? factory : PeerConnectionFactory::GetOrCreateDefault();
+    stream = factory->factory()->CreateLocalMediaStream(label);
+    mediaStream = new MediaStream(std::move(factory), std::move(stream), shouldReleaseFactory);
+  } else {
+    mediaStream = new MediaStream(std::move(factory), std::move(stream));
+  }
 
-  auto obj = new MediaStream(std::move(factory), std::move(stream));
-  obj->Wrap(info.This());
-  obj->Ref();
+  mediaStream->Wrap(info.This());
+  mediaStream->Ref();
+
+  for (auto track : tracks) {
+    Local<Value> argv[1];
+    argv[0] = track->handle();
+    Nan::Call("addTrack", info.This(), 1, argv);
+  }
 
   info.GetReturnValue().Set(info.This());
 }

@@ -18,6 +18,7 @@
 #include "webrtc/api/peerconnectioninterface.h"
 
 #include "src/converters.h"
+#include "src/converters/arguments.h"
 #include "src/converters/v8.h"
 #include "src/functional/validation.h"
 #include "src/mediastream.h"
@@ -634,6 +635,16 @@ struct Converter<node_webrtc::MediaStream*, v8::Local<v8::Value>> {
 };
 
 template <>
+struct Converter<v8::Local<v8::Value>, node_webrtc::MediaStream*> {
+  static Validation<node_webrtc::MediaStream*> Convert(v8::Local<v8::Value> value) {
+    // TODO(mroberts): This is not safe.
+    return value->IsObject() && !value->IsArray()
+        ? Validation<node_webrtc::MediaStream*>::Valid(Nan::ObjectWrap::Unwrap<node_webrtc::MediaStream>(value->ToObject()))
+        : Validation<node_webrtc::MediaStream*>::Invalid("IDK");
+  }
+};
+
+template <>
 struct Converter<node_webrtc::MediaStreamTrack*, v8::Local<v8::Value>> {
   static Validation<v8::Local<v8::Value>> Convert(node_webrtc::MediaStreamTrack* track) {
     Nan::EscapableHandleScope scope;
@@ -647,8 +658,10 @@ struct Converter<node_webrtc::MediaStreamTrack*, v8::Local<v8::Value>> {
 template <>
 struct Converter<v8::Local<v8::Value>, node_webrtc::MediaStreamTrack*> {
   static Validation<node_webrtc::MediaStreamTrack*> Convert(v8::Local<v8::Value> value) {
-    return Validation<node_webrtc::MediaStreamTrack*>::Valid(
-            Nan::ObjectWrap::Unwrap<node_webrtc::MediaStreamTrack>(value->ToObject()));
+    // TODO(mroberts): This is not safe.
+    return value->IsObject() && !value->IsArray()
+        ? Validation<node_webrtc::MediaStreamTrack*>::Valid(Nan::ObjectWrap::Unwrap<node_webrtc::MediaStreamTrack>(value->ToObject()))
+        : Validation<node_webrtc::MediaStreamTrack*>::Invalid("IDK");
   }
 };
 
