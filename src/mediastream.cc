@@ -5,6 +5,7 @@
  * project authors may be found in the AUTHORS file in the root of the source
  * tree.
  */
+#include <iostream>
 #include "src/mediastream.h"
 
 #include "webrtc/base/helpers.h"
@@ -32,18 +33,47 @@ Nan::Persistent<Function> MediaStream::constructor;
 
 std::map<rtc::scoped_refptr<webrtc::MediaStreamInterface>, MediaStream*> MediaStream::_streams;
 
+MediaStream::MediaStream(std::shared_ptr<PeerConnectionFactory>&& factory)
+  : _factory(factory ? factory : PeerConnectionFactory::GetOrCreateDefault())
+  , _stream(_factory->factory()->CreateLocalMediaStream(rtc::CreateRandomUuid()))
+  , _shouldReleaseFactory(!factory) {
+}
+
+MediaStream::MediaStream(std::vector<MediaStreamTrack*>&& tracks, std::shared_ptr<PeerConnectionFactory>&& factory)
+  : _factory(factory ? factory : tracks.empty() ? PeerConnectionFactory::GetOrCreateDefault() : tracks[0]->factory())
+  , _stream(_factory->factory()->CreateLocalMediaStream(rtc::CreateRandomUuid()))
+  , _shouldReleaseFactory(!factory && tracks.empty()) {
+  for (auto const& track : tracks) {
+    track->AddRef();
+  }
+  for (auto const& track : tracks) {
+    if (track->track()->kind() == track->track()->kAudioKind) {
+      auto audioTrack = static_cast<webrtc::AudioTrackInterface*>(track->track().get());
+      _stream->AddTrack(audioTrack);
+    } else {
+      auto videoTrack = static_cast<webrtc::VideoTrackInterface*>(track->track().get());
+      _stream->AddTrack(videoTrack);
+    }
+  }
+}
+
 MediaStream::MediaStream(
-    std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
     rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream,
-    bool shouldReleaseFactory)
-  : Nan::AsyncResource("MediaStream")
-  , _factory(factory ? factory : PeerConnectionFactory::GetOrCreateDefault())
-  , _stream(std::move(stream))
-  , _shouldReleaseFactory(!factory || shouldReleaseFactory) {
-  // Do nothing
+    std::shared_ptr<PeerConnectionFactory>&& factory)
+  : _factory(factory ? factory : PeerConnectionFactory::GetOrCreateDefault())
+  , _stream(stream)
+  , _shouldReleaseFactory(!factory) {
+  for (auto const& track : tracks()) {
+    auto mediaStreamTrack = MediaStreamTrack::GetOrCreate(_factory, track);
+    mediaStreamTrack->AddRef();
+  }
 }
 
 MediaStream::~MediaStream() {
+  for (auto const& track : tracks()) {
+    auto mediaStreamTrack = MediaStreamTrack::GetOrCreate(_factory, track);
+    mediaStreamTrack->RemoveRef();
+  }
   MediaStream::Release(this);
   if (_shouldReleaseFactory) {
     PeerConnectionFactory::Release();
@@ -52,69 +82,56 @@ MediaStream::~MediaStream() {
 
 NAN_METHOD(MediaStream::New) {
   CONVERT_ARGS_OR_THROW_AND_RETURN(eithers, Either<std::tuple<Local<External> COMMA Local<External>> COMMA Either<std::vector<MediaStreamTrack*> COMMA Maybe<MediaStream*>>>);
-  std::shared_ptr<PeerConnectionFactory> factory = nullptr;
-  rtc::scoped_refptr<webrtc::MediaStreamInterface> stream = nullptr;
-  auto tracks = std::vector<MediaStreamTrack*>();
+
+  MediaStream* mediaStream = nullptr;
+
   if (eithers.IsLeft()) {
     // 1. Remote MediaStream
     auto pair = eithers.UnsafeFromLeft();
-    factory = *static_cast<std::shared_ptr<node_webrtc::PeerConnectionFactory>*>(Local<External>::Cast(std::get<0>(pair))->Value());
-    stream = *static_cast<rtc::scoped_refptr<webrtc::MediaStreamInterface>*>(Local<External>::Cast(std::get<1>(pair))->Value());
+    auto factory = *static_cast<std::shared_ptr<node_webrtc::PeerConnectionFactory>*>(Local<External>::Cast(std::get<0>(pair))->Value());
+    auto stream = *static_cast<rtc::scoped_refptr<webrtc::MediaStreamInterface>*>(Local<External>::Cast(std::get<1>(pair))->Value());
+    mediaStream = new MediaStream(std::move(stream), std::move(factory));
   } else {
     auto either = eithers.UnsafeFromRight();
     if (either.IsLeft()) {
       // 2. Local MediaStream, Array of MediaStreamTracks
-      tracks = either.UnsafeFromLeft();
+      auto tracks = either.UnsafeFromLeft();
+      mediaStream = new MediaStream(std::move(tracks));
     } else {
       auto maybeStream = either.UnsafeFromRight();
       if (maybeStream.IsJust()) {
         // 3. Local MediaStream, existing MediaStream
-        auto mediaStream = maybeStream.UnsafeFromJust();
-        stream = mediaStream->_stream;
-        factory = mediaStream->_factory;
+        auto existingStream = maybeStream.UnsafeFromJust();
+        auto factory = existingStream->_factory;
+        auto tracks = std::vector<MediaStreamTrack*>();
+        for (auto const& track : existingStream->tracks()) {
+          tracks.push_back(MediaStreamTrack::GetOrCreate(factory, track));
+        }
+        mediaStream = new MediaStream(std::move(tracks), std::move(factory));
+      } else {
+        // 4. Local MediaStream
+        mediaStream = new MediaStream();
       }
-      // 4. Local MediaStream
     }
   }
 
-  MediaStream* mediaStream = nullptr;
-  if (!stream) {
-    auto label = rtc::CreateRandomUuid();
-    auto shouldReleaseFactory = !factory;
-    factory = factory ? factory : PeerConnectionFactory::GetOrCreateDefault();
-    stream = factory->factory()->CreateLocalMediaStream(label);
-    mediaStream = new MediaStream(std::move(factory), std::move(stream), shouldReleaseFactory);
-  } else {
-    mediaStream = new MediaStream(std::move(factory), std::move(stream));
-  }
-
   mediaStream->Wrap(info.This());
-  mediaStream->Ref();
-
-  for (auto track : tracks) {
-    Local<Value> argv[1];
-    argv[0] = track->handle();
-    Nan::Call("addTrack", info.This(), 1, argv);
-  }
 
   info.GetReturnValue().Set(info.This());
 }
 
 NAN_GETTER(MediaStream::GetId) {
+  (void) property;
   auto self = Nan::ObjectWrap::Unwrap<MediaStream>(info.Holder());
   info.GetReturnValue().Set(Nan::New(self->_stream->label()).ToLocalChecked());
 }
 
 NAN_GETTER(MediaStream::GetActive) {
+  (void) property;
   auto self = Nan::ObjectWrap::Unwrap<MediaStream>(info.Holder());
   auto active = false;
-  for (auto const& track : self->_stream->GetAudioTracks()) {
-    active = active ||
-        track->state() == webrtc::MediaStreamTrackInterface::TrackState::kLive;
-  }
-  for (auto const& track : self->_stream->GetVideoTracks()) {
-    active = active ||
-        track->state() == webrtc::MediaStreamTrackInterface::TrackState::kLive;
+  for (auto const& track : self->tracks()) {
+    active = active || track->state() == webrtc::MediaStreamTrackInterface::TrackState::kLive;
   }
   info.GetReturnValue().Set(Nan::New(active));
 }
@@ -144,11 +161,7 @@ NAN_METHOD(MediaStream::GetVideoTracks) {
 NAN_METHOD(MediaStream::GetTracks) {
   auto self = Nan::ObjectWrap::Unwrap<MediaStream>(info.Holder());
   auto tracks = std::vector<MediaStreamTrack*>();
-  for (auto const& track : self->_stream->GetAudioTracks()) {
-    auto mediaStreamTrack = MediaStreamTrack::GetOrCreate(self->_factory, track);
-    tracks.push_back(mediaStreamTrack);
-  }
-  for (auto const& track : self->_stream->GetVideoTracks()) {
+  for (auto const& track : self->tracks()) {
     auto mediaStreamTrack = MediaStreamTrack::GetOrCreate(self->_factory, track);
     tracks.push_back(mediaStreamTrack);
   }
@@ -196,13 +209,27 @@ NAN_METHOD(MediaStream::RemoveTrack) {
 }
 
 NAN_METHOD(MediaStream::Clone) {
-  Nan::ThrowError("Not yet implemented; file a feature request against node-webrtc");
+  (void) info;
+  auto self = Nan::ObjectWrap::Unwrap<MediaStream>(info.Holder());
+  auto clonedMediaStreamTracks = std::vector<Local<Value>>();
+  for (auto const& track : self->tracks()) {
+    auto mediaStreamTrack = MediaStreamTrack::GetOrCreate(self->_factory, track);
+    auto clonedMediaStreamTrack = Nan::Call("clone", mediaStreamTrack->handle(), 0, nullptr);
+    if (!clonedMediaStreamTrack.IsEmpty()) {
+      clonedMediaStreamTracks.push_back(clonedMediaStreamTrack.ToLocalChecked());
+    }
+  }
+  CONVERT_OR_THROW_AND_RETURN(clonedMediaStreamTracks, tracks, Local<Value>);
+  Local<Value> cargv[1];
+  cargv[0] = tracks;
+  auto mediaStream = Nan::New(MediaStream::constructor)->NewInstance(1, cargv);
+  info.GetReturnValue().Set(mediaStream);
 }
 
 MediaStream* MediaStream::GetOrCreate(
     std::shared_ptr<PeerConnectionFactory> factory,
     rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
-  Nan::HandleScope scope;
+  Nan::EscapableHandleScope scope;
   if (_streams.count(stream)) {
     return _streams[stream];
   }
@@ -210,7 +237,7 @@ MediaStream* MediaStream::GetOrCreate(
   cargv[0] = Nan::New<External>(static_cast<void*>(&factory));
   cargv[1] = Nan::New<External>(static_cast<void*>(&stream));
   auto mediaStream = Nan::ObjectWrap::Unwrap<MediaStream>(
-          Nan::New(MediaStream::constructor)->NewInstance(2, cargv));
+          scope.Escape(Nan::New(MediaStream::constructor)->NewInstance(2, cargv)));
   _streams[stream] = mediaStream;
   return mediaStream;
 }

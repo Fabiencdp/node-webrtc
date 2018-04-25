@@ -5,6 +5,7 @@ require('./sessiondesc');
 require('./connect');
 require('./iceservers');
 // require('./bwtest').tape();
+require('./mediastream');
 require('./multiconnect');
 require('./custom-settings');
 require('./closing-peer-connection');

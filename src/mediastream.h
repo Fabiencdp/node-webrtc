@@ -19,18 +19,17 @@
 namespace node_webrtc {
 
 class MediaStream
-  : public Nan::AsyncResource
-  , public Nan::ObjectWrap {
+  : public Nan::ObjectWrap {
  public:
-  MediaStream(
-      std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
-      rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream):
-    MediaStream(std::move(factory), std::move(stream), !_shouldReleaseFactory) {}
+  explicit MediaStream(std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory = nullptr);
 
-  MediaStream(
-      std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory,
+  explicit MediaStream(
+      std::vector<node_webrtc::MediaStreamTrack*>&& tracks,
+      std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory = nullptr);
+
+  explicit MediaStream(
       rtc::scoped_refptr<webrtc::MediaStreamInterface>&& stream,
-      bool shouldReleaseFactory);
+      std::shared_ptr<node_webrtc::PeerConnectionFactory>&& factory = nullptr);
 
   ~MediaStream() override;
 
@@ -55,6 +54,18 @@ class MediaStream
   static void Release(MediaStream*);
 
  private:
+  std::vector<rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>> tracks() {
+    auto tracks = std::vector<rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>>();
+    for (auto const& track : _stream->GetAudioTracks()) {
+      tracks.emplace_back(track);
+    }
+    for (auto const& track : _stream->GetVideoTracks()) {
+      tracks.emplace_back(track);
+    }
+    return tracks;
+  }
+
+  std::string _label;
   const std::shared_ptr<node_webrtc::PeerConnectionFactory> _factory;
   const rtc::scoped_refptr<webrtc::MediaStreamInterface> _stream;
   const bool _shouldReleaseFactory;

@@ -94,6 +94,9 @@ PeerConnection::PeerConnection(ExtendedRTCConfiguration configuration)
 PeerConnection::~PeerConnection() {
   TRACE_CALL;
   _jinglePeerConnection = nullptr;
+  for (auto receiver : _receivers) {
+    receiver->RemoveRef();
+  }
   _receivers.clear();
   if (_factory) {
     if (_shouldReleaseFactory) {
@@ -165,7 +168,7 @@ void PeerConnection::HandleOnAddTrackEvent(const OnAddTrackEvent& event) {
   cargv[1] = Nan::New<External>(static_cast<void*>(&rtpReceiver));
   auto receiver = Nan::ObjectWrap::Unwrap<RTCRtpReceiver>(
           Nan::New(RTCRtpReceiver::constructor)->NewInstance(2, cargv));
-
+  receiver->AddRef();
   _receivers.push_back(receiver);
 
   auto mediaStreams = std::vector<MediaStream*>();

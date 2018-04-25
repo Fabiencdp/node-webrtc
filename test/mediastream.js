@@ -51,7 +51,7 @@ tape('new MediaStream()', function(t) {
 tape('new MediaStream(stream)', function(t) {
   return getMediaStream().then(function(stream1) {
     var stream2 = new MediaStream(stream1);
-    t.equal(stream2.id, stream1.id, 'the MediaStream .ids do not match');
+    t.notEqual(stream2.id, stream1.id, 'the MediaStream .ids do not match');
     t.ok(stream2.getTracks().every(function(track, i) {
       return track === stream1.getTracks()[i];
     }) && stream1.getTracks().every(function(track, i) {
@@ -70,6 +70,41 @@ tape('new MediaStream(tracks)', function(t) {
     }) && tracks.every(function(track, i) {
       return track === stream2.getTracks()[i];
     }), 'the MediaStream\'s MediaStreamTracks match tracks');
+    t.end();
+  });
+});
+
+tape('.clone', function(t) {
+  return getMediaStream().then(function(stream1) {
+    var stream2 = stream1.clone();
+    var stream3 = stream2.clone();
+    // NOTE(mroberts): Weirdly, cloned video MediaStreamTracks have .readyState
+    // "live"; we'll .stop them, at least until that bug is fixed.
+    // stream2.getVideoTracks().forEach(function(track) {
+    stream2.getTracks().forEach(function(track) {
+      track.stop();
+    });
+    // stream3.getVideoTracks().forEach(function(track) {
+    stream3.getTracks().forEach(function(track) {
+      track.stop();
+    });
+    t.ok(
+      stream1.id !== stream2.id &&
+      stream2.id !== stream3.id &&
+      stream3.id !== stream1.id,
+      'the cloned MediaStreams have different IDs');
+    t.ok(
+      stream1.getTracks().length === stream2.getTracks().length &&
+      stream1.getTracks().length === stream3.getTracks().length,
+      'the cloned MediaStreams contain the same number of MediaStreamTracks');
+    t.ok(stream1.getTracks().every(function(track, i) {
+      return track.kind === stream2.getTracks()[i].kind &&
+        track.kind === stream3.getTracks()[i].kind;
+    }), 'the cloned MediaStreams contain the same kinds of MediaStreamTracks');
+    t.ok(stream1.getTracks().every(function(track, i) {
+      return track.id !== stream2.getTracks()[i].id &&
+        track.id !== stream3.getTracks()[i].id;
+    }), 'the cloned MediaStreams\'s MediaStreamTracks do not have the same .ids');
     t.end();
   });
 });

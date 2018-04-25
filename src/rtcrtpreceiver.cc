@@ -27,7 +27,12 @@ RTCRtpReceiver::RTCRtpReceiver(
   : _factory(std::move(factory))
   , _receiver(std::move(receiver))
   , _track(track) {
-  // Do nothing.
+  _track->AddRef();
+}
+
+RTCRtpReceiver::~RTCRtpReceiver() {
+  _track->RemoveRef();
+  _track->OnRTCRtpReceiverDestroyed();
 }
 
 NAN_METHOD(RTCRtpReceiver::New) {
@@ -41,7 +46,6 @@ NAN_METHOD(RTCRtpReceiver::New) {
 
   auto obj = new RTCRtpReceiver(std::move(factory), std::move(receiver), track);
   obj->Wrap(info.This());
-  obj->Ref();
 
   info.GetReturnValue().Set(info.This());
 }

@@ -24,7 +24,6 @@
 namespace node_webrtc {
 
 struct Arguments {
- public:
   Nan::NAN_METHOD_ARGS_TYPE info;
   explicit Arguments(Nan::NAN_METHOD_ARGS_TYPE info): info(info) {}
 };
@@ -32,16 +31,15 @@ struct Arguments {
 template <typename A>
 struct Converter<Arguments, A> {
   static Validation<A> Convert(Arguments args) {
-    // return From<A>(args.info[0]);
-    return Converter<v8::Local<v8::Value>, A>::Convert(args.info[0]);
+    return From<A>(args.info[0]);
   }
 };
 
 template <typename L, typename R>
 struct Converter<Arguments, Either<L, R>> {
   static Validation<Either<L, R>> Convert(Arguments args) {
-    return Converter<Arguments, L>::Convert(args).Map(&Either<L, R>::Left)
-        | (Converter<Arguments, R>::Convert(args).Map(&Either<L, R>::Right));
+    return From<L>(args).Map(&Either<L, R>::Left)
+        | (From<R>(args).Map(&Either<L, R>::Right));
   }
 };
 
@@ -54,8 +52,8 @@ template <typename A, typename B>
 struct Converter<Arguments, std::tuple<A, B>> {
   static Validation<std::tuple<A, B>> Convert(Arguments args) {
     return curry(Make2Tuple<A, B>)
-        % Converter<v8::Local<v8::Value>, A>::Convert(args.info[0])
-        * Converter<v8::Local<v8::Value>, B>::Convert(args.info[1]);
+        % From<A>(args.info[0])
+        * From<B>(args.info[1]);
   }
 };
 
@@ -68,9 +66,9 @@ template <typename A, typename B, typename C>
 struct Converter<Arguments, std::tuple<A, B, C>> {
   static Validation<std::tuple<A, B, C>> Convert(Arguments args) {
     return curry(Make3Tuple<A, B, C>)
-        % Converter<v8::Local<v8::Value>, A>::Convert(args.info[0])
-        * Converter<v8::Local<v8::Value>, B>::Convert(args.info[1])
-        * Converter<v8::Local<v8::Value>, C>::Convert(args.info[2]);
+        % From<A>(args.info[0])
+        * From<B>(args.info[1])
+        * From<C>(args.info[2]);
   }
 };
 

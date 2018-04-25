@@ -11,15 +11,15 @@
 #include "nan.h"
 #include "v8.h"
 
+#include "objectwrap.h"
 #include "peerconnectionfactory.h"
 #include "promisefulfillingeventloop.h"
 
 namespace node_webrtc {
 
 class MediaStreamTrack
-  : public Nan::AsyncResource
-  , public Nan::ObjectWrap
-  , public node_webrtc::EventLoop<MediaStreamTrack>
+  : public node_webrtc::EventLoop<MediaStreamTrack>
+  , public ObjectWrap
   , public webrtc::ObserverInterface {
  public:
   MediaStreamTrack(
@@ -37,8 +37,15 @@ class MediaStreamTrack
   static NAN_GETTER(GetKind);
   static NAN_GETTER(GetReadyState);
 
+  static NAN_METHOD(Clone);
+  static NAN_METHOD(JsStop);
+
   // ObserverInterface
   void OnChanged() override;
+
+  void OnRTCRtpReceiverDestroyed() {
+    Stop();
+  }
 
   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track() { return _track; }
 
@@ -46,6 +53,8 @@ class MediaStreamTrack
       std::shared_ptr<PeerConnectionFactory>,
       rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>);
   static void Release(MediaStreamTrack*);
+
+  std::shared_ptr<node_webrtc::PeerConnectionFactory> factory() { return _factory; }
 
  protected:
   void DidStop() override;
